@@ -1,0 +1,9 @@
+[CmdletBinding(SupportsShouldProcess=$true)]
+param([switch]$RefreshRootCertificates,[switch]$RepairCryptographicServices,[switch]$ClearUrlCache,[switch]$AutoEnroll,[string]$OutputPath="$env:USERPROFILE\Desktop\CertificateRepair")
+$ErrorActionPreference='Stop';New-Item -ItemType Directory -Path $OutputPath -Force|Out-Null;$Log=Join-Path $OutputPath ("repair-{0:yyyyMMdd-HHmmss}.log"-f(Get-Date));function L($m){"$(Get-Date -Format s) $m"|Tee-Object -FilePath $Log -Append};if(-not($RefreshRootCertificates-or$RepairCryptographicServices-or$ClearUrlCache-or$AutoEnroll)){throw'Choose at least one repair action.'}
+Get-ChildItem Cert:\LocalMachine\My,Cert:\LocalMachine\Root -ErrorAction SilentlyContinue|Select Subject,Thumbprint,NotAfter,PSParentPath|Export-Csv (Join-Path $OutputPath 'certificates-before.csv') -NoTypeInformation
+if($RepairCryptographicServices-and$PSCmdlet.ShouldProcess('Cryptographic Services','Restart')){Restart-Service CryptSvc -Force;L'Cryptographic Services restarted.'}
+if($ClearUrlCache-and$PSCmdlet.ShouldProcess('Certificate URL cache','Clear')){certutil -urlcache * delete|Tee-Object -FilePath $Log -Append;L'Certificate URL cache cleared.'}
+if($RefreshRootCertificates-and$PSCmdlet.ShouldProcess('Trusted root store','Refresh from Windows Update')){$sst=Join-Path $OutputPath 'roots.sst';certutil -generateSSTFromWU $sst|Tee-Object -FilePath $Log -Append;if(Test-Path $sst){Import-Certificate -FilePath $sst -CertStoreLocation Cert:\LocalMachine\Root|Out-Null};L'Root certificate refresh completed.'}
+if($AutoEnroll-and$PSCmdlet.ShouldProcess('Certificate autoenrollment','Trigger')){certutil -pulse|Tee-Object -FilePath $Log -Append;gpupdate /target:computer /force|Tee-Object -FilePath $Log -Append;L'Autoenrollment triggered.'}
+L'Repair workflow finished.'
